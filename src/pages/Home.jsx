@@ -1,0 +1,6 @@
+import { CheckCircle2, ShieldCheck } from 'lucide-react'
+import UploadCard from '../components/UploadCard'
+
+export default function Home({ onFile, onSheet, loading, error }) {
+  return <main className="home-page"><section className="hero-section"><div className="hero-copy"><img className="freelan-logo" src="/freelan-logo.png" alt="Freelan Matara" /><div className="product-lockup"><strong>DataLens</strong><span>Data Analytics Platform</span></div><h1>Turn spreadsheets into <em>beautiful insights.</em></h1><p>Upload your Excel or CSV files, connect Google Sheets, and transform your data into clear, meaningful visual insights.</p><div className="hero-proof"><span><CheckCircle2 size={16} /> No setup required</span><span><ShieldCheck size={16} /> Your data stays in your browser</span></div></div></section><section className="import-section"><div className="section-heading"><div><p className="eyebrow">START WITH YOUR DATA</p><h2>One file in. A clear story out.</h2></div><p>DataLens finds the patterns, relationships, and signals worth your attention.</p></div><UploadCard onFile={onFile} onSheet={onSheet} loading={loading} />{error && <div className="error-banner" role="alert"><span>!</span>{error}</div>}</section></main>
+}
