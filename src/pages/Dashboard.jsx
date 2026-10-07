@@ -32,6 +32,10 @@ function exportRows(rows, fileName) {
   XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows), 'Stock Analysis')
   XLSX.writeFile(book, `${fileName.replace(/\.[^.]+$/, '')}-analysis.xlsx`)
 }
+function rawComment(product) {
+  const entry = Object.entries(product.raw || {}).find(([key]) => key.trim().toLowerCase() === 'comments')
+  return entry?.[1] ?? ''
+}
 
 function pieLabel({ percent }) {
   if (!percent) return ''
@@ -97,6 +101,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
   const [previousName, setPreviousName] = useState(detectedPrevious?.name || 'Month 1')
   const [currentName, setCurrentName] = useState(detectedCurrent?.name || 'Month 2')
   const [query, setQuery] = useState('')
+  const [comments, setComments] = useState({})
   const previousSheet = sheets.find((sheet) => sheet.name === previousName) || detectedPrevious
   const currentSheet = sheets.find((sheet) => sheet.name === currentName) || detectedCurrent
   const previous = useMemo(() => analyzeData(previousSheet?.rows || []), [previousSheet])
@@ -139,7 +144,12 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
     'Target Stock': product.targetStock,
     'Stock %': product.sourcePercent ?? product.stockPercent,
     Status: product.status,
+    Comments: comments[product.id] ?? rawComment(product),
   }))
+
+  function updateComment(productId, value) {
+    setComments((currentComments) => ({ ...currentComments, [productId]: value }))
+  }
 
   return (
     <main className="management-page">
@@ -248,6 +258,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
                 <th>Total Stock</th>
                 <th>%</th>
                 <th>Status</th>
+                <th>Comments</th>
               </tr>
             </thead>
             <tbody>
@@ -272,6 +283,16 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
                   <td><strong>{formatValue(product.currentStock)} kg</strong></td>
                   <td><strong>{formatPercent(product.sourcePercent ?? product.stockPercent)}</strong></td>
                   <td><label className={`status-pill ${statusClass(product.status)}`}>{product.status}</label></td>
+                  <td>
+                    <input
+                      className="stock-comment-input"
+                      type="text"
+                      value={comments[product.id] ?? rawComment(product)}
+                      onChange={(event) => updateComment(product.id, event.target.value)}
+                      placeholder="Add a comment"
+                      aria-label={`Comment for ${product.product}`}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
