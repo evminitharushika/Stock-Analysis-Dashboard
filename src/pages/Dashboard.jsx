@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react'
-import { Download, Printer, RefreshCcw, Search, Table2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Download, FileDown, Printer, RefreshCcw, Search, Table2 } from 'lucide-react'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import * as XLSX from 'xlsx'
 import {
@@ -35,6 +37,15 @@ function exportRows(rows, fileName) {
 function rawComment(product) {
   const entry = Object.entries(product.raw || {}).find(([key]) => key.trim().toLowerCase() === 'comments')
   return entry?.[1] ?? ''
+}
+function pdfStatusStyle(status) {
+  const styles = {
+    Critical: { fill: [255, 228, 230], text: [159, 18, 57] },
+    'Low Stock': { fill: [254, 243, 199], text: [146, 64, 14] },
+    Sufficient: { fill: [220, 252, 231], text: [22, 101, 52] },
+    Overstock: { fill: [243, 232, 255], text: [107, 33, 168] },
+  }
+  return styles[status] || { fill: [241, 245, 249], text: [71, 85, 105] }
 }
 
 function pieLabel({ percent }) {
@@ -102,6 +113,9 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
   const [currentName, setCurrentName] = useState(detectedCurrent?.name || 'Month 2')
   const [query, setQuery] = useState('')
   const [comments, setComments] = useState({})
+  const [printWarehouse, setPrintWarehouse] = useState(false)
+  const loadedCommentsKey = useRef('')
+  const commentsStorageKey = `warehouse-stock-comments:${dataset.sourceUrl || dataset.fileName}:${currentName}`
   const previousSheet = sheets.find((sheet) => sheet.name === previousName) || detectedPrevious
   const currentSheet = sheets.find((sheet) => sheet.name === currentName) || detectedCurrent
   const previous = useMemo(() => analyzeData(previousSheet?.rows || []), [previousSheet])
@@ -147,12 +161,135 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
     Comments: comments[product.id] ?? rawComment(product),
   }))
 
+  useEffect(() => {
+    if (loadedCommentsKey.current !== commentsStorageKey) {
+      try {
+        const savedComments = window.localStorage.getItem(commentsStorageKey)
+        setComments(savedComments ? JSON.parse(savedComments) : {})
+      } catch (error) {
+        console.error('Could not load saved warehouse comments.', error)
+        setComments({})
+      }
+      loadedCommentsKey.current = commentsStorageKey
+      return
+    }
+
+    try {
+      window.localStorage.setItem(commentsStorageKey, JSON.stringify(comments))
+    } catch (error) {
+      console.error('Could not save warehouse comments.', error)
+    }
+  }, [comments, commentsStorageKey])
+
+  useEffect(() => {
+    function finishWarehousePrint() {
+      setPrintWarehouse(false)
+    }
+    window.addEventListener('afterprint', finishWarehousePrint)
+    return () => window.removeEventListener('afterprint', finishWarehousePrint)
+  }, [])
+
   function updateComment(productId, value) {
     setComments((currentComments) => ({ ...currentComments, [productId]: value }))
   }
 
+  function saveWarehousePdf() {
+    const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const pageWidth = document.internal.pageSize.getWidth()
+    const source = dataset.sourceUrl || dataset.fileName || 'Uploaded data'
+    const generated = new Date().toLocaleString()
+    const pdfRows = filtered.map((product) => [
+      `${product.product}\n${product.code}`,
+      product.category,
+      `${formatValue(product.freelan)} kg\n${formatPercent(product.warehouseShares?.freelan)}`,
+      `${formatValue(product.navimana)} kg\n${formatPercent(product.warehouseShares?.navimana)}`,
+      `${formatValue(product.agro)} kg\n${formatPercent(product.warehouseShares?.agro)}`,
+      `${formatValue(product.sm)} kg\n${formatPercent(product.warehouseShares?.sm)}`,
+      WAREHOUSES.map((warehouse) => `${warehouse.label}: ${formatPercent(product.warehouseShares?.[warehouse.key])}`).join('\n'),
+      `${formatValue(product.currentStock)} kg`,
+      formatPercent(product.sourcePercent ?? product.stockPercent),
+      product.status,
+      (comments[product.id] ?? rawComment(product)) || '—',
+    ])
+
+    document.setFillColor(19, 34, 56)
+    document.rect(0, 0, pageWidth, 30, 'F')
+    document.setTextColor(255, 255, 255)
+    document.setFont('helvetica', 'bold')
+    document.setFontSize(18)
+    document.text('WAREHOUSE STOCK BY PRODUCT', 14, 13)
+    document.setFont('helvetica', 'normal')
+    document.setFontSize(9)
+    document.text('Freelan Inventory Report', 14, 20)
+    document.text(`Sheet: ${currentName}   |   Source: ${source}`, 14, 25)
+    document.text(`Generated: ${generated}`, pageWidth - 14, 25, { align: 'right' })
+
+    autoTable(document, {
+      startY: 36,
+      head: [['Product', 'Category', 'UK Store', 'Navimana', 'Agro', 'SM', 'Share', 'Total Stock', '%', 'Status', 'Comments']],
+      body: pdfRows,
+      theme: 'grid',
+      margin: { left: 10, right: 10, bottom: 14 },
+      styles: {
+        font: 'helvetica',
+        fontSize: 7,
+        cellPadding: 2,
+        textColor: [51, 65, 85],
+        lineColor: [203, 213, 225],
+        lineWidth: 0.2,
+        overflow: 'linebreak',
+        valign: 'middle',
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 30 },
+        1: { cellWidth: 20 },
+        2: { cellWidth: 18 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 18 },
+        5: { cellWidth: 18 },
+        6: { cellWidth: 28 },
+        7: { cellWidth: 19 },
+        8: { cellWidth: 12 },
+        9: { cellWidth: 23, halign: 'center' },
+        10: { cellWidth: 42 },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'head' && data.column.index >= 2 && data.column.index <= 5) {
+          const warehouseColors = [[234, 179, 8], [220, 38, 38], [22, 163, 74], [37, 99, 235]]
+          data.cell.styles.fillColor = warehouseColors[data.column.index - 2]
+          data.cell.styles.textColor = data.column.index === 2 ? [51, 65, 85] : [255, 255, 255]
+        }
+        if (data.section === 'body' && data.column.index >= 2 && data.column.index <= 5) {
+          const warehouseColors = [[254, 249, 195], [254, 226, 226], [220, 252, 231], [219, 234, 254]]
+          data.cell.styles.fillColor = warehouseColors[data.column.index - 2]
+        }
+        if (data.section === 'body' && data.column.index === 9) {
+          const statusStyle = pdfStatusStyle(String(data.cell.raw))
+          data.cell.styles.fillColor = statusStyle.fill
+          data.cell.styles.textColor = statusStyle.text
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+      didDrawPage: (data) => {
+        document.setFontSize(8)
+        document.setTextColor(100, 116, 139)
+        document.text(`Freelan Inventory Report · Page ${data.pageNumber}`, pageWidth - 10, 202, { align: 'right' })
+      },
+    })
+
+    const safeName = String(dataset.fileName || 'freelan-inventory').replace(/\.[^.]+$/, '').replace(/[^a-z0-9-_]+/gi, '-')
+    document.save(`${safeName}-warehouse-stock-${currentName.replace(/[^a-z0-9-_]+/gi, '-')}.pdf`)
+  }
+
   return (
-    <main className="management-page">
+    <main className={`management-page${printWarehouse ? ' print-warehouse' : ''}`}>
       <header className="management-header">
         <div>
           <p className="eyebrow">INVENTORY CONTROL · MANAGEMENT VIEW</p>
@@ -244,6 +381,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
             <h2>Each item’s stock in UK Store, Navimana, Agro, and SM</h2>
             <p className="section-muted">Warehouse kg and % come from the sheet. The % column is the same stock percentage as in Google Sheets. UK Store is yellow, Navimana is red, Agro is green, and SM is blue.</p>
           </div>
+          <button className="ghost-action warehouse-pdf-action" onClick={saveWarehousePdf}><FileDown size={16} /> Save table as PDF</button>
         </div>
         <div className="table-scroll">
           <table className="comparison-table source-stock-table warehouse-table">
@@ -292,6 +430,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
                       placeholder="Add a comment"
                       aria-label={`Comment for ${product.product}`}
                     />
+                    <span className="stock-comment-print">{(comments[product.id] ?? rawComment(product)) || '—'}</span>
                   </td>
                 </tr>
               ))}
