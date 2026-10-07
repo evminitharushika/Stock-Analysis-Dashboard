@@ -47,6 +47,17 @@ function pdfStatusStyle(status) {
   }
   return styles[status] || { fill: [241, 245, 249], text: [71, 85, 105] }
 }
+async function loadLogoDataUrl() {
+  const response = await fetch('/freelan-logo.png')
+  if (!response.ok) throw new Error(`Could not load the Freelan logo (${response.status}).`)
+  const blob = await response.blob()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('Could not read the Freelan logo.'))
+    reader.readAsDataURL(blob)
+  })
+}
 
 function pieLabel({ percent }) {
   if (!percent) return ''
@@ -193,11 +204,21 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
     setComments((currentComments) => ({ ...currentComments, [productId]: value }))
   }
 
-  function saveWarehousePdf() {
+  async function saveWarehousePdf() {
+    let logoDataUrl
+    try {
+      logoDataUrl = await loadLogoDataUrl()
+    } catch (error) {
+      console.error('Could not load the Freelan logo for the PDF.', error)
+      window.alert('The PDF could not be generated because the Freelan logo could not be loaded.')
+      return
+    }
+
     const document = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
     const pageWidth = document.internal.pageSize.getWidth()
+    const pageHeight = document.internal.pageSize.getHeight()
     const source = dataset.sourceUrl || dataset.fileName || 'Uploaded data'
-    const generated = new Date().toLocaleString()
+    const generated = dataset.lastUpdated?.toLocaleString() || 'N/A'
     const pdfRows = filtered.map((product) => [
       `${product.product}\n${product.code}`,
       product.category,
@@ -212,24 +233,71 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
       (comments[product.id] ?? rawComment(product)) || '—',
     ])
 
-    document.setFillColor(19, 34, 56)
-    document.rect(0, 0, pageWidth, 30, 'F')
-    document.setTextColor(255, 255, 255)
+    const drawFooter = (pageNumber) => {
+      document.setDrawColor(203, 213, 225)
+      document.line(10, pageHeight - 12, pageWidth - 10, pageHeight - 12)
+      document.setFont('helvetica', 'normal')
+      document.setFontSize(8)
+      document.setTextColor(100, 116, 139)
+      document.text('Freelan · Stock Analysis Report', 10, pageHeight - 6)
+      document.text(`Page ${pageNumber}`, pageWidth - 10, pageHeight - 6, { align: 'right' })
+    }
+
+    document.setFillColor(255, 255, 255)
+    document.rect(0, 0, pageWidth, 33, 'F')
+    document.addImage(logoDataUrl, 'PNG', 12, 7, 31, 17)
+    document.setTextColor(19, 34, 56)
     document.setFont('helvetica', 'bold')
-    document.setFontSize(18)
-    document.text('WAREHOUSE STOCK BY PRODUCT', 14, 13)
+    document.setFontSize(14)
+    document.text('FREELAN', 49, 13)
     document.setFont('helvetica', 'normal')
     document.setFontSize(9)
-    document.text('Freelan Inventory Report', 14, 20)
-    document.text(`Sheet: ${currentName}   |   Source: ${source}`, 14, 25)
-    document.text(`Generated: ${generated}`, pageWidth - 14, 25, { align: 'right' })
+    document.setTextColor(71, 85, 105)
+    document.text('DataLens · Inventory & Stock Analysis', 49, 19)
+    document.text('Freelan company inventory report', 49, 24)
+    document.setDrawColor(148, 163, 184)
+    document.setLineWidth(0.5)
+    document.line(12, 31, pageWidth - 12, 31)
+    document.setTextColor(19, 34, 56)
+    document.setFont('helvetica', 'bold')
+    document.setFontSize(17)
+    document.text('STOCK ANALYSIS REPORT', 12, 42)
+    document.setFont('helvetica', 'normal')
+    document.setFontSize(8.5)
+    document.setTextColor(71, 85, 105)
+    document.text(`Sheet: ${currentName}   |   Source: ${source}`, 12, 49)
+    document.text(`Generated: ${generated}`, pageWidth - 12, 49, { align: 'right' })
 
     autoTable(document, {
-      startY: 36,
+      startY: 55,
+      head: [['TOTAL ITEMS', 'ITEMS BELOW TARGET', 'OUT OF STOCK ITEMS', 'CURRENT STOCK', 'TARGET COVERAGE']],
+      body: [[
+        String(filtered.length),
+        String(lowStock.length),
+        String(filtered.filter((product) => (product.currentStock || 0) <= 0).length),
+        `${formatValue(currentTotal)} kg`,
+        formatPercent(currentPercent),
+      ]],
+      theme: 'grid',
+      margin: { left: 12, right: 12, bottom: 16 },
+      styles: { font: 'helvetica', fontSize: 9, cellPadding: 3, halign: 'center', valign: 'middle', lineColor: [203, 213, 225], lineWidth: 0.2 },
+      headStyles: { fillColor: [19, 34, 56], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+      bodyStyles: { fillColor: [248, 250, 252], textColor: [19, 34, 56], fontStyle: 'bold' },
+      didDrawPage: (data) => drawFooter(data.pageNumber),
+    })
+
+    const nextY = document.lastAutoTable.finalY + 8
+
+    document.setTextColor(19, 34, 56)
+    document.setFont('helvetica', 'bold')
+    document.setFontSize(12)
+    document.text('WAREHOUSE STOCK BY PRODUCT', 12, nextY)
+    autoTable(document, {
+      startY: nextY + 5,
       head: [['Product', 'Category', 'UK Store', 'Navimana', 'Agro', 'SM', 'Share', 'Total Stock', '%', 'Status', 'Comments']],
       body: pdfRows,
       theme: 'grid',
-      margin: { left: 10, right: 10, bottom: 14 },
+      margin: { left: 10, right: 10, bottom: 16 },
       styles: {
         font: 'helvetica',
         fontSize: 7,
@@ -278,9 +346,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
         }
       },
       didDrawPage: (data) => {
-        document.setFontSize(8)
-        document.setTextColor(100, 116, 139)
-        document.text(`Freelan Inventory Report · Page ${data.pageNumber}`, pageWidth - 10, 202, { align: 'right' })
+        drawFooter(data.pageNumber)
       },
     })
 
