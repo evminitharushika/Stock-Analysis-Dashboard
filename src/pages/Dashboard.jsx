@@ -77,16 +77,16 @@ function WarehouseBar({ product }) {
   )
 }
 
-function BranchChips({ product }) {
-  const branches = product.branches?.length
-    ? product.branches
-    : WAREHOUSES.filter((warehouse) => (product[warehouse.key] || 0) > 0)
-  if (!branches.length) return <span className="branch-empty">No branch stock</span>
+function BranchChips({ product, emptyOnly = false }) {
+  const branches = emptyOnly
+    ? (product.coloredZeroBranches || [])
+    : (product.branches?.length ? product.branches : WAREHOUSES.filter((warehouse) => (product[warehouse.key] || 0) > 0))
+  if (!branches.length) return <span className="branch-empty">{emptyOnly ? 'No highlighted zero' : 'No branch stock'}</span>
   return (
     <div className="branch-chips">
       {branches.map((warehouse) => (
         <span key={warehouse.key} className={`branch-chip ${warehouse.key}`} style={{ '--branch': warehouse.color }}>
-          {warehouse.label}
+          {warehouse.label}{emptyOnly ? ' · 0' : ''}
         </span>
       ))}
     </div>
@@ -144,7 +144,10 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
     if (!text) return comparison
     return comparison.filter((product) => `${product.product} ${product.code} ${product.category} ${product.mixRm}`.toLowerCase().includes(text))
   }, [comparison, query])
-  const lowStock = filtered.filter((product) => product.status === 'Critical' || product.status === 'Low Stock').sort((a, b) => (a.stockPercent ?? Infinity) - (b.stockPercent ?? Infinity))
+  const colorAware = filtered.some((product) => product.colorAware)
+  const lowStock = filtered
+    .filter((product) => (colorAware ? product.isColoredZeroLow : (product.status === 'Critical' || product.status === 'Low Stock')))
+    .sort((a, b) => (b.coloredZeroBranches?.length || 0) - (a.coloredZeroBranches?.length || 0) || (a.stockPercent ?? Infinity) - (b.stockPercent ?? Infinity))
   const topLow = lowStock.slice(0, 5)
   const overstock = filtered.filter((product) => product.status === 'Overstock')
   const currentTotal = sumBy(filtered, 'currentStock')
@@ -418,7 +421,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
           <div>
             <p className="eyebrow">ACTION REQUIRED</p>
             <h2>TOP 5 LOW STOCK ITEMS</h2>
-            <p>Lowest sheet % products, with the warehouse branches that currently hold stock.</p>
+            <p>{colorAware ? 'Only highlighted (colored) zeros in UK Store, Navimana, SM, and Agro. Uncolored zeros are ignored.' : 'Lowest sheet % products, with the warehouse branches that currently hold stock.'}</p>
           </div>
           <span>{lowStock.length} items</span>
         </div>
@@ -432,7 +435,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
               </div>
               <span>Stock {formatValue(product.currentStock)} kg<br />Target {formatValue(product.targetStock)} kg</span>
               <em>{formatPercent(product.stockPercent)}</em>
-              <BranchChips product={product} />
+              <BranchChips product={product} emptyOnly={colorAware} />
               <WarehouseBar product={product} />
               <label className={`status-pill ${statusClass(product.status)}`}>{product.status}</label>
             </article>
@@ -445,7 +448,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
           <div>
             <p className="eyebrow">WAREHOUSE STOCK BY PRODUCT</p>
             <h2>Each item’s stock in UK Store, Navimana, Agro, and SM</h2>
-            <p className="section-muted">Warehouse kg and % come from the sheet. The % column is the same stock percentage as in Google Sheets. UK Store is yellow, Navimana is red, Agro is green, and SM is blue.</p>
+            <p className="section-muted">Warehouse kg come from the sheet. Uncolored zeros are ignored. Only colored 0 cells count as low stock. UK Store is yellow, Navimana is red, Agro is green, and SM is blue.</p>
           </div>
           <button className="ghost-action warehouse-pdf-action" onClick={saveWarehousePdf}><FileDown size={16} /> Save table as PDF</button>
         </div>
@@ -474,12 +477,14 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
                   </td>
                   <td>{product.category}</td>
                   {WAREHOUSES.map((warehouse) => {
+                    const cell = product.warehouseCells?.[warehouse.key]
                     const value = product[warehouse.key]
                     const share = product.warehouseShares?.[warehouse.key]
+                    const markedZero = cell?.markedZero
                     return (
-                      <td key={warehouse.key} className={`wh-${warehouse.key}`}>
-                        <strong>{formatValue(value)}</strong>
-                        <small>{(value || 0) > 0 ? formatPercent(share) : '—'}</small>
+                      <td key={warehouse.key} className={`wh-${warehouse.key}${markedZero ? ' wh-marked-zero' : ''}`}>
+                        <strong>{markedZero ? '0' : (value == null ? '—' : formatValue(value))}</strong>
+                        <small>{markedZero ? 'Low' : ((value || 0) > 0 ? formatPercent(share) : '—')}</small>
                       </td>
                     )
                   })}

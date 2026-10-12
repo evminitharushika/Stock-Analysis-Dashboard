@@ -143,7 +143,7 @@ function attachCategories(objectRows, matrixRows, headerIndex) {
     const row = objectRows[index]
     if (!row) return
 
-    const meaningful = Object.values(row).filter((value) => !isEmpty(value))
+    const meaningful = Object.entries(row).filter(([key, value]) => !key.startsWith('__') && !isEmpty(value))
     if (!meaningful.length) return
 
     const first = String(matrixRow[0] ?? '').trim()
@@ -158,17 +158,70 @@ function attachCategories(objectRows, matrixRows, headerIndex) {
   return result
 }
 
-export function rowsToObjects(rows, headerIndex = detectHeaderRow(rows)) {
+export function isHighlightedFill(style) {
+  if (!style) return false
+  const pattern = String(style.patternType || '').toLowerCase()
+  if (!pattern || pattern === 'none') return false
+  const rgb = String(style.fgColor?.rgb || style.bgColor?.rgb || '').replace(/^FF/i, '').toUpperCase()
+  if (!rgb && (style.fgColor?.theme === 0 || style.bgColor?.theme === 0)) return false
+  if (rgb === 'FFFFFF' || rgb === '000000') return false
+  return true
+}
+
+export function fillHex(style) {
+  const rgb = String(style?.fgColor?.rgb || style?.bgColor?.rgb || '').replace(/^FF/i, '')
+  return rgb ? `#${rgb}` : null
+}
+
+export function worksheetToMatrix(worksheet) {
+  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
+  const lastCol = Math.min(range.e.c, 40)
+  const lastRow = Math.min(range.e.r, 500)
+  const rows = []
+  const fills = []
+  for (let r = range.s.r; r <= lastRow; r += 1) {
+    const row = []
+    const fillRow = []
+    for (let c = range.s.c; c <= lastCol; c += 1) {
+      const cell = worksheet[XLSX.utils.encode_cell({ r, c })]
+      row.push(!cell || cell.t === 'z' ? null : (cell.v ?? null))
+      fillRow.push(cell?.s || null)
+    }
+    rows.push(row)
+    fills.push(fillRow)
+  }
+  return { rows, fills }
+}
+
+export function rowsToObjects(rows, headerIndex = detectHeaderRow(rows), fillRows = []) {
   const rawHeader = rows[headerIndex] || []
   const sampleRows = rows.slice(headerIndex + 1)
+  const sampleFills = fillRows.slice(headerIndex + 1)
   const inferred = inferMissingHeaders(rawHeader, sampleRows)
   const headers = makeUniqueHeaders(inferred, rows.slice(0, headerIndex))
-  const objectRows = sampleRows.map((row) => Object.fromEntries(headers.map((header, index) => [header, row[index] ?? null])))
+  const objectRows = sampleRows.map((row, rowIndex) => {
+    const values = Object.fromEntries(headers.map((header, index) => [header, row[index] ?? null]))
+    const colored = {}
+    const colors = {}
+    headers.forEach((header, index) => {
+      const style = sampleFills[rowIndex]?.[index]
+      if (isHighlightedFill(style)) {
+        colored[header] = true
+        colors[header] = fillHex(style)
+      }
+    })
+    return { ...values, __cellColored: colored, __cellColor: colors }
+  })
   return cleanRows(attachCategories(objectRows, rows, headerIndex))
 }
 
-export function parseRows(rows) {
-  return rowsToObjects(rows)
+export function parseRows(rows, fillRows = []) {
+  return rowsToObjects(rows, detectHeaderRow(rows), fillRows)
+}
+
+export function parseWorksheet(worksheet) {
+  const { rows, fills } = worksheetToMatrix(worksheet)
+  return parseRows(rows, fills)
 }
 
 export function parseFile(file) {
@@ -193,10 +246,10 @@ export function parseFile(file) {
     const reader = new FileReader()
     reader.onload = (event) => {
       try {
-        const workbook = XLSX.read(event.target.result, { type: 'array', cellDates: true })
+        const workbook = XLSX.read(event.target.result, { type: 'array', cellDates: true, cellStyles: true })
         const sheets = workbook.SheetNames.map((name) => ({
           name,
-          rows: parseRows(XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null, raw: true })),
+          rows: parseWorksheet(workbook.Sheets[name]),
         }))
         resolve({ rows: (sheets.find((sheet) => sheet.rows.length) || sheets[0])?.rows || [], sheets })
       } catch {
@@ -211,5 +264,5 @@ export function parseFile(file) {
 export function cleanRows(rows) {
   return rows
     .map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [String(key).trim(), typeof value === 'string' ? value.trim() : value])))
-    .filter((row) => Object.entries(row).some(([key, value]) => key !== '__category' && !isEmpty(value)))
+    .filter((row) => Object.entries(row).some(([key, value]) => !key.startsWith('__') && !isEmpty(value)))
 }

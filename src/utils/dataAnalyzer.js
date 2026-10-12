@@ -121,9 +121,22 @@ export function analyzeData(rows, thresholds) {
     return exact || null
   })()
   const config = thresholds || { critical: 50, sufficient: 80, overstock: 100 }
+  const colorAware = rows.some((row) => Object.values(row.__cellColored || {}).some(Boolean))
 
   const products = rows.map((row, index) => {
-    const sourceValues = Object.fromEntries(Object.entries(sources).map(([name, column]) => [name, column ? toNumber(row[column]) : null]))
+    const warehouseCells = Object.fromEntries(Object.entries(sources).map(([name, column]) => {
+      const colored = !!(column && row.__cellColored?.[column])
+      const color = column ? row.__cellColor?.[column] || null : null
+      const parsed = column ? toNumber(row[column]) : null
+      const empty = parsed === null
+      if (colorAware) {
+        if (colored && (parsed === 0 || empty)) return [name, { value: 0, colored, color, markedZero: true }]
+        if (!colored && (parsed === 0 || empty)) return [name, { value: null, colored: false, color: null, markedZero: false }]
+        return [name, { value: parsed, colored, color, markedZero: false }]
+      }
+      return [name, { value: parsed, colored: false, color: null, markedZero: parsed === 0 }]
+    }))
+    const sourceValues = Object.fromEntries(Object.entries(warehouseCells).map(([name, cell]) => [name, cell.value]))
     const sourceColumnsExist = Object.values(sources).some(Boolean)
     const sourceStock = Object.values(sourceValues).some((value) => value !== null)
       ? Object.values(sourceValues).map((value) => value ?? 0).reduce((sum, value) => sum + value, 0)
@@ -146,6 +159,13 @@ export function analyzeData(rows, thresholds) {
     const materialType = classifyMaterial(description)
     const warehouseTotal = ['freelan', 'navimana', 'agro', 'sm'].reduce((sum, key) => sum + (sourceValues[key] || 0), 0)
     const branches = WAREHOUSES.filter((warehouse) => (sourceValues[warehouse.key] || 0) > 0)
+    const coloredZeroBranches = WAREHOUSES.filter((warehouse) => warehouseCells[warehouse.key]?.markedZero).map((warehouse) => ({
+      ...warehouse,
+      color: warehouseCells[warehouse.key].color || warehouse.color,
+    }))
+    const isColoredZeroLow = coloredZeroBranches.length > 0
+    const percentStatus = invalidStockData || stockPercent === null ? 'Data Quality Issue' : getStockStatus(stockPercent, config)
+    const status = colorAware && isColoredZeroLow ? 'Low Stock' : percentStatus
 
     return {
       id: `${index}-${String(row[codeColumn] || description)}`,
@@ -155,6 +175,7 @@ export function analyzeData(rows, thresholds) {
       requiredStock,
       targetStock,
       ...sourceValues,
+      warehouseCells,
       totalStock,
       stockPercent,
       calculatedPercent,
@@ -165,10 +186,14 @@ export function analyzeData(rows, thresholds) {
         WAREHOUSES.map((warehouse) => [warehouse.key, warehouseTotal ? ((sourceValues[warehouse.key] || 0) / warehouseTotal) * 100 : 0]),
       ),
       branches,
+      coloredZeroBranches,
+      isColoredZeroLow,
+      colorAware,
       category,
       materialType,
       invalidStockData,
-      status: invalidStockData || stockPercent === null ? 'Data Quality Issue' : getStockStatus(stockPercent, config),
+      status,
+      percentStatus,
       shortage: Math.max((targetStock || 0) - (totalStock || 0), 0),
       excess: Math.max((totalStock || 0) - (targetStock || 0), 0),
       raw: row,

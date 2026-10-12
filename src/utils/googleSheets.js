@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import Papa from 'papaparse'
-import { parseRows } from './excelParser'
+import { parseRows, parseWorksheet } from './excelParser'
 
 export function getGoogleSheetId(input) {
   const match = input.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
@@ -19,14 +19,14 @@ export function getGoogleSheetXlsxUrl(input) {
 }
 
 function workbookToSheets(workbook) {
-  return workbook.SheetNames.map((name) => ({ name, rows: parseRows(XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null, raw: true })) }))
+  return workbook.SheetNames.map((name) => ({ name, rows: parseWorksheet(workbook.Sheets[name]) }))
 }
 
 export async function fetchGoogleSheet(input) {
   const response = await fetch(getGoogleSheetXlsxUrl(input))
   if (response.ok) {
     try {
-      const workbook = XLSX.read(await response.arrayBuffer(), { type: 'array', cellDates: true })
+      const workbook = XLSX.read(await response.arrayBuffer(), { type: 'array', cellDates: true, cellStyles: true })
       const sheets = workbookToSheets(workbook)
       if (sheets.length) return { rows: (sheets.find((sheet) => sheet.rows.length) || sheets[0]).rows, sheets }
     } catch {

@@ -59,6 +59,8 @@ body { background:#f7f8fc; color:var(--navy); }
 .share-grid { display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-bottom:15px; }.share-pie { background:#fff; border:1px solid #e1e7ef; border-radius:10px; padding:16px 16px 8px; min-width:0; }.share-pie h3 { margin:0 0 4px; color:#132238; font:800 15px Manrope,sans-serif; }
 .warehouse-bar { display:flex; height:10px; width:140px; overflow:hidden; border-radius:99px; background:#eef2f6; }.warehouse-bar span { display:block; height:100%; }.warehouse-bar.empty { color:#94a3b8; font-size:10px; height:auto; background:none; }
 .warehouse-table th.wh-freelan, .warehouse-table td.wh-freelan { color:#854d0e; background:#fefce8; }.warehouse-table th.wh-navimana, .warehouse-table td.wh-navimana { color:#7f1d1d; background:#fef2f2; }.warehouse-table th.wh-agro, .warehouse-table td.wh-agro { color:#14532d; background:#f0fdf4; }.warehouse-table th.wh-sm, .warehouse-table td.wh-sm { color:#1e3a8a; background:#eff6ff; }
+.warehouse-table td.wh-marked-zero { outline:2px solid #dc2626; outline-offset:-2px; font-weight:800; }
+.warehouse-table td.wh-marked-zero small { color:#b91c1c; }
 .warehouse-table td.wh-freelan strong, .warehouse-table td.wh-navimana strong, .warehouse-table td.wh-agro strong, .warehouse-table td.wh-sm strong { display:block; font-size:12px; }
 .warehouse-table td.wh-freelan small, .warehouse-table td.wh-navimana small, .warehouse-table td.wh-agro small, .warehouse-table td.wh-sm small { display:block; margin-top:2px; font-size:10px; font-weight:800; opacity:.85; }
 .branch-chips { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:4px; margin-top:2px; }
