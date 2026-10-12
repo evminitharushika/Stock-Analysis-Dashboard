@@ -120,7 +120,7 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
   const sheets = dataset.sheets?.length ? dataset.sheets : [{ name: 'Data', rows: dataset.rows }]
   const detectedPrevious = sheetBy(sheets, /sep|september/i, 0)
   const detectedCurrent = sheetBy(sheets, /oct|october/i, Math.min(1, sheets.length - 1))
-  const [previousName, setPreviousName] = useState(detectedPrevious?.name || 'Month 1')
+  const [previousName] = useState(detectedPrevious?.name || 'Month 1')
   const [currentName, setCurrentName] = useState(detectedCurrent?.name || 'Month 2')
   const [query, setQuery] = useState('')
   const [comments, setComments] = useState({})
@@ -375,11 +375,6 @@ export default function Dashboard({ dataset, onRefresh, refreshing }) {
       <section className="month-source-bar">
         <Table2 size={16} />
         <span>Sheet data only</span>
-        <label>Compare
-          <select value={previousName} onChange={(event) => setPreviousName(event.target.value)}>
-            {sheets.map((sheet) => <option key={`previous-${sheet.name}`}>{sheet.name}</option>)}
-          </select>
-        </label>
         <label>Show
           <select value={currentName} onChange={(event) => setCurrentName(event.target.value)}>
             {sheets.map((sheet) => <option key={`current-${sheet.name}`}>{sheet.name}</option>)}
